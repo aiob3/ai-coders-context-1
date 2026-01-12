@@ -1,40 +1,26 @@
+import { wrapWithFrontMatter } from './common';
 
 export function renderToolingGuide(): string {
-
-  return `
-<!-- agent-update:start:tooling -->
-# Tooling & Productivity Guide
+  const content = `# Tooling & Productivity Guide
 
 Collect the scripts, automation, and editor settings that keep contributors efficient.
 
 ## Required Tooling
-- <!-- agent-fill:tool-required -->Tool name — How to install, version requirements, what it powers.<!-- /agent-fill -->
+
+List tools with installation instructions, version requirements, and what they power.
 
 ## Recommended Automation
-- Pre-commit hooks, linting/formatting commands, code generators, or scaffolding scripts.
-- Shortcuts or watch modes for local development loops.
+
+Document pre-commit hooks, linting/formatting commands, code generators, or scaffolding scripts. Include shortcuts or watch modes for local development loops.
 
 ## IDE / Editor Setup
-- Extensions or plugins that catch issues early.
-- Snippets, templates, or workspace settings worth sharing.
+
+List extensions or plugins that catch issues early. Share snippets, templates, or workspace settings.
 
 ## Productivity Tips
-- Terminal aliases, container workflows, or local emulators mirroring production.
-- Links to shared scripts or dotfiles used across the team.
 
-<!-- agent-readonly:guidance -->
-## AI Update Checklist
-1. Verify commands align with the latest scripts and build tooling.
-2. Remove instructions for deprecated tools and add replacements.
-3. Highlight automation that saves time during reviews or releases.
-4. Cross-link to runbooks or README sections that provide deeper context.
-
-<!-- agent-readonly:sources -->
-## Acceptable Sources
-- Onboarding docs, internal wikis, and team retrospectives.
-- Script directories, package manifests, CI configuration.
-- Maintainer recommendations gathered during pairing or code reviews.
-
-<!-- agent-update:end -->
+Document terminal aliases, container workflows, or local emulators mirroring production. Link to shared scripts or dotfiles used across the team.
 `;
+
+  return wrapWithFrontMatter(content);
 }

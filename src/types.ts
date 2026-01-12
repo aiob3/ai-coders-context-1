@@ -22,17 +22,13 @@ export interface RepoStructure {
   topLevelDirectoryStats: TopLevelDirectoryStats[];
 }
 
-export interface OpenRouterConfig {
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-}
+export type AIProvider = 'openrouter' | 'openai' | 'anthropic' | 'google';
 
 export interface LLMConfig {
   apiKey: string;
   model: string;
   baseUrl?: string;
-  provider: 'openrouter';
+  provider: AIProvider;
 }
 
 export interface CLIOptions {
