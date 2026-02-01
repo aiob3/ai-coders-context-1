@@ -1,5 +1,7 @@
 # @ai-coders/context
 
+[guide](https://www.youtube.com/watch?v=SmKHsDrSaJM&list=TLPQMDEwMjIwMjZdYpEXFjzd_w&index=3)
+
 [![npm version](https://badge.fury.io/js/@ai-coders%2Fcontext.svg)](https://www.npmjs.com/package/@ai-coders/context)
 [![CI](https://github.com/vinilana/ai-coders-context/actions/workflows/ci.yml/badge.svg)](https://github.com/vinilana/ai-coders-context/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
