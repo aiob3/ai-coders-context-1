@@ -35,6 +35,26 @@ export const SearchCodeInputSchema = z.object({
   maxResults: z.number().optional().default(50)
 });
 
+export const GetCodebaseMapInputSchema = z.object({
+  repoPath: z.string().optional().describe('Repository path (defaults to cwd)'),
+  section: z.enum([
+    'all',
+    'stack',
+    'structure',
+    'architecture',
+    'symbols',
+    'symbols.classes',
+    'symbols.interfaces',
+    'symbols.functions',
+    'symbols.types',
+    'symbols.enums',
+    'publicAPI',
+    'dependencies',
+    'stats'
+  ]).default('all').optional()
+    .describe('Section of the codebase map to retrieve. Use specific sections to reduce token usage.')
+});
+
 // =============================================================================
 // Tool Output Schemas
 // =============================================================================
@@ -117,6 +137,14 @@ export const SearchCodeOutputSchema = z.object({
   matches: z.array(CodeMatchSchema).optional(),
   totalMatches: z.number().optional(),
   truncated: z.boolean().optional(),
+  error: z.string().optional()
+});
+
+export const GetCodebaseMapOutputSchema = z.object({
+  success: z.boolean(),
+  section: z.string(),
+  data: z.unknown().optional().describe('The requested section data from codebase-map.json'),
+  mapPath: z.string().optional().describe('Path to the codebase-map.json file'),
   error: z.string().optional()
 });
 
@@ -224,6 +252,57 @@ export const DevelopmentPlanSchema = z.object({
 // MCP Scaffolding Tool Schemas
 // =============================================================================
 
+/**
+ * Status enum for tools that require follow-up actions
+ */
+export const ToolStatusEnum = z.enum(['success', 'incomplete', 'requires_action', 'error']);
+
+/**
+ * Action status enum for tracking required actions
+ */
+export const ActionStatusEnum = z.enum(['pending', 'in_progress', 'completed', 'skipped']);
+
+/**
+ * Required action schema for structured action protocol
+ */
+export const RequiredActionSchema = z.object({
+  order: z.number().describe('Sequence order for this action'),
+  actionType: z.enum(['WRITE_FILE', 'CALL_TOOL', 'VERIFY']).describe('Type of action to perform'),
+  filePath: z.string().describe('Absolute path to the file'),
+  fileType: z.enum(['doc', 'agent']).describe('Type of scaffold file'),
+  instructions: z.string().describe('Instructions for filling this file'),
+  suggestedContent: z.string().optional().describe('Pre-generated content to write to the file'),
+  status: ActionStatusEnum.describe('Current status of this action'),
+});
+
+export type RequiredAction = z.infer<typeof RequiredActionSchema>;
+
+/**
+ * Project type enum for scaffold filtering
+ */
+export const ProjectTypeEnum = z.enum([
+  'cli',
+  'web-frontend',
+  'web-backend',
+  'full-stack',
+  'mobile',
+  'library',
+  'monorepo',
+  'desktop',
+  'unknown',
+]);
+
+export type ProjectTypeSchema = z.infer<typeof ProjectTypeEnum>;
+
+/**
+ * Project classification output schema
+ */
+export const ProjectClassificationSchema = z.object({
+  projectType: ProjectTypeEnum,
+  confidence: z.enum(['high', 'medium', 'low']),
+  reasoning: z.array(z.string()),
+});
+
 export const CheckScaffoldingInputSchema = z.object({
   repoPath: z.string().optional().describe('Repository path to check (defaults to cwd)')
 });
@@ -244,16 +323,73 @@ export const InitializeContextInputSchema = z.object({
   semantic: z.boolean().default(true).optional()
     .describe('Enable semantic analysis for richer templates'),
   include: z.array(z.string()).optional().describe('Include patterns'),
-  exclude: z.array(z.string()).optional().describe('Exclude patterns')
+  exclude: z.array(z.string()).optional().describe('Exclude patterns'),
+  projectType: ProjectTypeEnum.optional()
+    .describe('Override auto-detected project type (e.g., "cli", "web-frontend", "library")'),
+  disableFiltering: z.boolean().default(false).optional()
+    .describe('Generate all agents/docs regardless of project type'),
+  autoFill: z.boolean().default(true).optional()
+    .describe('Automatically fill scaffolding with codebase-aware content (default: true)'),
+  skipContentGeneration: z.boolean().default(true).optional()
+    .describe('Skip pre-generating content for MCP to reduce response size. Use fillSingleFile or fillScaffolding tools to generate content on demand. (default: true)'),
+  generateQA: z.boolean().default(true).optional()
+    .describe('Generate Q&A files based on detected patterns and stack (default: true)'),
+  generateSkills: z.boolean().default(true).optional()
+    .describe('Generate skills scaffolding (default: true)'),
 });
 
 export const InitializeContextOutputSchema = z.object({
-  success: z.boolean(),
+  // Immediate action signal - appears first in JSON for AI visibility
+  instruction: z.string().optional()
+    .describe('Human-readable instruction telling the AI what to do immediately'),
+  _warning: z.string().optional()
+    .describe('Warning signal for incomplete operations'),
+
+  // Structured action protocol fields
+  status: ToolStatusEnum.describe('Operation status - "incomplete" means pending writes must be completed'),
+  complete: z.boolean().optional()
+    .describe('Explicit boolean: false means operation is NOT complete'),
+  operationType: z.string().optional().describe('Type of operation performed'),
+  completionCriteria: z.string().optional()
+    .describe('Explicit description of what makes this operation complete'),
+
+  // Fill instructions (the UPDATE_SCAFFOLD_PROMPT)
+  fillInstructions: z.string().optional()
+    .describe('Standard prompt with guidelines for HOW to fill the scaffolded files'),
+
+  // Pending writes (renamed from requiredActions for clarity)
+  pendingWrites: z.array(RequiredActionSchema).optional()
+    .describe('Files that MUST be written. Each has content ready to write.'),
+
+  // Legacy: requiredActions (kept for backwards compatibility)
+  requiredActions: z.array(RequiredActionSchema).optional()
+    .describe('DEPRECATED: Use pendingWrites instead'),
+
+  // Checklist format that AIs recognize
+  checklist: z.array(z.string()).optional()
+    .describe('Human-readable checklist of pending tasks in "[ ] task" format'),
+
+  codebaseContext: z.string().optional()
+    .describe('Semantic context for understanding the codebase'),
+  nextStep: z.object({
+    action: z.string().describe('What to do next'),
+    example: z.string().optional().describe('Example tool call'),
+  }).optional().describe('Explicit next step with example'),
+
+  // Metadata fields
+  _metadata: z.object({
+    docsGenerated: z.number().optional(),
+    agentsGenerated: z.number().optional(),
+    outputDir: z.string(),
+    classification: ProjectClassificationSchema.optional(),
+  }).optional().describe('Metadata about the operation'),
+
+  // Legacy fields (kept for backwards compatibility)
   docsGenerated: z.number().optional(),
   agentsGenerated: z.number().optional(),
   outputDir: z.string(),
-  generatedFiles: z.array(z.string()).optional().describe('List of generated template files that need to be filled'),
-  nextSteps: z.array(z.string()).optional().describe('Instructions for the AI agent to fill the templates'),
+  classification: ProjectClassificationSchema.optional()
+    .describe('Detected project type and classification confidence'),
   error: z.string().optional()
 });
 
@@ -263,7 +399,9 @@ export const ScaffoldPlanInputSchema = z.object({
   outputDir: z.string().optional().describe('Output directory'),
   title: z.string().optional().describe('Plan title (defaults to formatted planName)'),
   summary: z.string().optional().describe('Plan summary/goal'),
-  semantic: z.boolean().default(true).optional().describe('Enable semantic analysis')
+  semantic: z.boolean().default(true).optional().describe('Enable semantic analysis'),
+  autoFill: z.boolean().default(true).optional()
+    .describe('Automatically fill the plan with codebase-aware content (default: true)'),
 });
 
 export const ScaffoldPlanOutputSchema = z.object({
@@ -293,6 +431,8 @@ export type GetFileStructureInput = z.infer<typeof GetFileStructureInputSchema>;
 export type GetFileStructureOutput = z.infer<typeof GetFileStructureOutputSchema>;
 export type SearchCodeInput = z.infer<typeof SearchCodeInputSchema>;
 export type SearchCodeOutput = z.infer<typeof SearchCodeOutputSchema>;
+export type GetCodebaseMapInput = z.infer<typeof GetCodebaseMapInputSchema>;
+export type GetCodebaseMapOutput = z.infer<typeof GetCodebaseMapOutputSchema>;
 export type DocumentationOutput = z.infer<typeof DocumentationOutputSchema>;
 export type AgentPlaybook = z.infer<typeof AgentPlaybookSchema>;
 export type DevelopmentPlan = z.infer<typeof DevelopmentPlanSchema>;

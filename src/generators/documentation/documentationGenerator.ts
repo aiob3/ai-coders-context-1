@@ -6,26 +6,55 @@ import {
   DocumentationTemplateContext,
   GuideMeta,
   renderIndex,
-  renderProjectOverview,
-  renderArchitectureNotes,
-  renderDevelopmentWorkflow,
-  renderTestingStrategy,
-  renderGlossary,
-  renderDataFlow,
-  renderSecurity,
-  renderToolingGuide
 } from './templates';
-import { getGuidesByKeys } from './guideRegistry';
+import { getGuidesByKeys, DOCUMENT_GUIDES } from './guideRegistry';
 import { CodebaseAnalyzer, SemanticContext } from '../../services/semantic';
+import { StackDetector } from '../../services/stack';
+import { CodebaseMapGenerator } from './codebaseMapGenerator';
+import {
+  createDocFrontmatter,
+  serializeFrontmatter,
+  DocScaffoldFrontmatter,
+} from '../../types/scaffoldFrontmatter';
+import { getScaffoldStructure, ScaffoldStructure, serializeStructureAsMarkdown } from '../shared/scaffoldStructures';
 
-interface DocSection {
-  fileName: string;
-  content: (context: DocumentationTemplateContext) => string;
+/**
+ * Category mapping from document name to frontmatter category.
+ * Using SCAFFOLD_STRUCTURES as single source of truth for descriptions/titles.
+ */
+const DOC_CATEGORY_MAP: Record<string, DocScaffoldFrontmatter['category']> = {
+  'project-overview': 'overview',
+  'architecture': 'architecture',
+  'development-workflow': 'workflow',
+  'testing-strategy': 'testing',
+  'glossary': 'glossary',
+  'data-flow': 'data-flow',
+  'security': 'security',
+  'tooling': 'tooling',
+};
+
+/**
+ * Get document info from scaffold structure (single source of truth)
+ */
+function getDocInfo(key: string): { title: string; description: string; category: DocScaffoldFrontmatter['category'] } | undefined {
+  const structure = getScaffoldStructure(key);
+  if (!structure || structure.fileType !== 'doc') {
+    return undefined;
+  }
+  return {
+    title: structure.title,
+    description: structure.description,
+    category: DOC_CATEGORY_MAP[key],
+  };
 }
 
 interface DocumentationGenerationConfig {
   selectedDocs?: string[];
   semantic?: boolean;
+  /** Filtered list of docs based on project type classification */
+  filteredDocs?: string[];
+  /** Include section headings and guidance in scaffolds (CLI mode) */
+  includeContentStubs?: boolean;
 }
 
 export class DocumentationGenerator {
@@ -58,15 +87,66 @@ export class DocumentationGenerator {
       }
     }
 
-    const guidesToGenerate = getGuidesByKeys(config.selectedDocs);
+    // Generate codebase map JSON if semantic analysis succeeded
+    if (semantics) {
+      try {
+        GeneratorUtils.logProgress('Generating codebase map...', verbose);
+        const stackDetector = new StackDetector();
+        const stackInfo = await stackDetector.detect(repoStructure.rootPath);
+
+        const mapGenerator = new CodebaseMapGenerator();
+        const codebaseMap = mapGenerator.generate(repoStructure, semantics, stackInfo);
+
+        const mapPath = path.join(docsDir, 'codebase-map.json');
+        await GeneratorUtils.writeFileWithLogging(
+          mapPath,
+          JSON.stringify(codebaseMap, null, 2),
+          verbose,
+          'Created codebase-map.json'
+        );
+      } catch (error) {
+        GeneratorUtils.logError('Codebase map generation failed, continuing without it', error, verbose);
+      }
+    }
+
+    // Prioritize explicitly selected docs, then filtered by project type
+    const docKeys = config.selectedDocs ?? config.filteredDocs;
+    const guidesToGenerate = getGuidesByKeys(docKeys);
     const context = this.buildContext(repoStructure, guidesToGenerate, semantics);
-    const sections = this.getDocSections(guidesToGenerate);
 
     let created = 0;
-    for (const section of sections) {
-      const targetPath = path.join(docsDir, section.fileName);
-      const content = section.content(context);
-      await GeneratorUtils.writeFileWithLogging(targetPath, content, verbose, `Created ${section.fileName}`);
+
+    // Generate README.md index (still uses template rendering for summary)
+    const readmePath = path.join(docsDir, 'README.md');
+    const readmeContent = renderIndex(context);
+    await GeneratorUtils.writeFileWithLogging(readmePath, readmeContent, verbose, 'Created README.md');
+    created += 1;
+
+    // Generate frontmatter-only files for each guide (scaffold v2)
+    for (const guide of guidesToGenerate) {
+      const docInfo = getDocInfo(guide.key);
+      if (!docInfo) {
+        continue;
+      }
+
+      const filename = `${guide.key}.md`;
+      const targetPath = path.join(docsDir, filename);
+      const frontmatter = createDocFrontmatter(
+        guide.key,
+        docInfo.description,
+        docInfo.category
+      );
+      let content = serializeFrontmatter(frontmatter) + '\n';
+
+      // Add content stubs when requested (CLI mode)
+      if (config.includeContentStubs) {
+        const structure = getScaffoldStructure(guide.key);
+        if (structure) {
+          content += serializeStructureAsMarkdown(structure);
+        }
+      }
+
+      await GeneratorUtils.writeFileWithLogging(targetPath, content, verbose, `Created ${filename}`);
       created += 1;
     }
 
@@ -114,40 +194,6 @@ export class DocumentationGenerator {
       }
     });
     return Array.from(directorySet).sort();
-  }
-
-  private getDocSections(guides: GuideMeta[]): DocSection[] {
-    const sections: DocSection[] = [
-      {
-        fileName: 'README.md',
-        content: context => renderIndex(context)
-      }
-    ];
-
-    const renderMap: Record<string, (context: DocumentationTemplateContext) => string> = {
-      'project-overview': renderProjectOverview,
-      architecture: renderArchitectureNotes,
-      'development-workflow': () => renderDevelopmentWorkflow(),
-      'testing-strategy': () => renderTestingStrategy(),
-      glossary: renderGlossary,
-      'data-flow': renderDataFlow,
-      security: () => renderSecurity(),
-      tooling: () => renderToolingGuide()
-    };
-
-    guides.forEach(guide => {
-      const renderer = renderMap[guide.key];
-      if (!renderer) {
-        return;
-      }
-
-      sections.push({
-        fileName: guide.file,
-        content: renderer
-      });
-    });
-
-    return sections;
   }
 
   private async updateAgentGuideReferences(repoStructure: RepoStructure, verbose: boolean): Promise<void> {

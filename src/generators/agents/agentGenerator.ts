@@ -2,10 +2,17 @@ import * as path from 'path';
 import { RepoStructure } from '../../types';
 import { GeneratorUtils } from '../shared';
 import { AGENT_TYPES, AgentType } from './agentTypes';
-import { renderAgentPlaybook, renderAgentIndex } from './templates';
+import { renderAgentIndex } from './templates';
 import { DOCUMENT_GUIDES } from '../documentation/guideRegistry';
 import { CodebaseAnalyzer, SemanticContext, ExtractedSymbol } from '../../services/semantic';
 import { KeySymbolInfo } from './templates/types';
+import { AGENT_RESPONSIBILITIES } from './agentConfig';
+import {
+  createAgentFrontmatter,
+  serializeFrontmatter,
+} from '../../types/scaffoldFrontmatter';
+import { PrevcPhase } from '../../workflow/types';
+import { getScaffoldStructure, serializeStructureAsMarkdown } from '../shared/scaffoldStructures';
 
 interface AgentContext {
   topLevelDirectories: string[];
@@ -15,6 +22,40 @@ interface AgentContext {
 interface AgentGenerationConfig {
   selectedAgents?: string[];
   semantic?: boolean;
+  /** Filtered list of agents based on project type classification */
+  filteredAgents?: AgentType[];
+  /** Include section headings and guidance in scaffolds (CLI mode) */
+  includeContentStubs?: boolean;
+}
+
+/**
+ * Agent to PREVC phase mapping
+ */
+const AGENT_PHASES: Record<AgentType, PrevcPhase[]> = {
+  'code-reviewer': ['R', 'V'],
+  'bug-fixer': ['E', 'V'],
+  'feature-developer': ['P', 'E'],
+  'refactoring-specialist': ['E'],
+  'test-writer': ['E', 'V'],
+  'documentation-writer': ['P', 'C'],
+  'performance-optimizer': ['E', 'V'],
+  'security-auditor': ['R', 'V'],
+  'backend-specialist': ['P', 'E'],
+  'frontend-specialist': ['P', 'E'],
+  'architect-specialist': ['P', 'R'],
+  'devops-specialist': ['E', 'C'],
+  'database-specialist': ['P', 'E'],
+  'mobile-specialist': ['P', 'E'],
+};
+
+/**
+ * Format agent type as display title
+ */
+function formatAgentTitle(agentType: AgentType): string {
+  return agentType
+    .split('-')
+    .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
 }
 
 export class AgentGenerator {
@@ -64,24 +105,42 @@ export class AgentGenerator {
     }
 
     const context = this.buildContext(repoStructure, semantics);
-    const agentTypes = this.resolveAgentSelection(normalizedConfig.selectedAgents);
+    const agentTypes = this.resolveAgentSelection(
+      normalizedConfig.selectedAgents,
+      normalizedConfig.filteredAgents
+    );
 
     let created = 0;
+
+    // Generate frontmatter-only files for each agent (scaffold v2)
     for (const agentType of agentTypes) {
-      const relevantSymbols = this.getRelevantSymbolsForAgent(agentType, semantics);
-      const content = renderAgentPlaybook(
+      const title = formatAgentTitle(agentType);
+      const responsibilities = AGENT_RESPONSIBILITIES[agentType] || [];
+      const description = responsibilities[0] || `${title} agent playbook`;
+      const phases = AGENT_PHASES[agentType];
+
+      const frontmatter = createAgentFrontmatter(
+        title,
+        description,
         agentType,
-        context.topLevelDirectories,
-        this.docTouchpoints,
-        semantics,
-        relevantSymbols,
-        repoStructure.rootPath
+        phases
       );
+      let content = serializeFrontmatter(frontmatter) + '\n';
+
+      // Add content stubs when requested (CLI mode)
+      if (normalizedConfig.includeContentStubs) {
+        const structure = getScaffoldStructure(agentType);
+        if (structure) {
+          content += serializeStructureAsMarkdown(structure);
+        }
+      }
+
       const filePath = path.join(agentsDir, `${agentType}.md`);
       await GeneratorUtils.writeFileWithLogging(filePath, content, verbose, `Created ${agentType}.md`);
       created += 1;
     }
 
+    // Generate README.md index
     const indexPath = path.join(agentsDir, 'README.md');
     const indexContent = renderAgentIndex(agentTypes);
     await GeneratorUtils.writeFileWithLogging(indexPath, indexContent, verbose, 'Created README.md');
@@ -181,14 +240,24 @@ export class AgentGenerator {
     }));
   }
 
-  private resolveAgentSelection(selected?: string[]): readonly AgentType[] {
-    if (!selected || selected.length === 0) {
-      return AGENT_TYPES;
+  private resolveAgentSelection(
+    selected?: string[],
+    filteredByProjectType?: AgentType[]
+  ): readonly AgentType[] {
+    // If explicitly selected agents are provided, use those
+    if (selected && selected.length > 0) {
+      const allowed = new Set<AgentType>(AGENT_TYPES);
+      const filtered = selected.filter((agent): agent is AgentType => allowed.has(agent as AgentType));
+      return (filtered.length > 0 ? filtered : AGENT_TYPES) as readonly AgentType[];
     }
 
-    const allowed = new Set<AgentType>(AGENT_TYPES);
-    const filtered = selected.filter((agent): agent is AgentType => allowed.has(agent as AgentType));
-    return (filtered.length > 0 ? filtered : AGENT_TYPES) as readonly AgentType[];
+    // If filtered by project type, use those
+    if (filteredByProjectType && filteredByProjectType.length > 0) {
+      return filteredByProjectType;
+    }
+
+    // Default: all agents
+    return AGENT_TYPES;
   }
 
   private buildContext(repoStructure: RepoStructure, semantics?: SemanticContext): AgentContext {

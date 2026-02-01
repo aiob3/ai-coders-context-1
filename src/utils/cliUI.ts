@@ -31,6 +31,34 @@ export class CLIInterface {
     console.log('');
   }
 
+  /**
+   * Display PREVC workflow explanation with visual diagram
+   */
+  displayPrevcExplanation(): void {
+    const repoUrl = 'https://github.com/ai-coders-academy/ai-coders-context';
+
+    console.log('');
+    console.log(colors.accent(this.t('ui.prevc.title')));
+    console.log(colors.secondaryDim(this.t('ui.prevc.subtitle')));
+    console.log('');
+
+    // Visual PREVC diagram
+    console.log(colors.secondary('  ┌─────────────────────────────────────────────────────────────┐'));
+    console.log(colors.secondary('  │') + colors.primary('  P → R → E → V → C                                         ') + colors.secondary('│'));
+    console.log(colors.secondary('  │                                                             │'));
+    console.log(colors.secondary('  │') + colors.accent('  [P]') + colors.primary('lan      ') + colors.secondaryDim('Define specs before coding                  ') + colors.secondary('│'));
+    console.log(colors.secondary('  │') + colors.accent('  [R]') + colors.primary('eview    ') + colors.secondaryDim('Validate approach with context              ') + colors.secondary('│'));
+    console.log(colors.secondary('  │') + colors.accent('  [E]') + colors.primary('xecute   ') + colors.secondaryDim('Implement following the plan                ') + colors.secondary('│'));
+    console.log(colors.secondary('  │') + colors.accent('  [V]') + colors.primary('alidate  ') + colors.secondaryDim('Test and verify against specs               ') + colors.secondary('│'));
+    console.log(colors.secondary('  │') + colors.accent('  [C]') + colors.primary('onfirm   ') + colors.secondaryDim('Human approval before merge                 ') + colors.secondary('│'));
+    console.log(colors.secondary('  └─────────────────────────────────────────────────────────────┘'));
+    console.log('');
+    console.log(colors.secondaryDim(`  ${this.t('ui.prevc.specDriven')}`));
+    console.log('');
+    console.log(colors.secondaryDim(`  ${symbols.pointer} ${repoUrl}`));
+    console.log('');
+  }
+
   displayProjectInfo(repoPath: string, outputDir: string, mode: string): void {
     console.log(typography.header(this.t('ui.projectConfiguration.title')));
     console.log('');
@@ -41,6 +69,10 @@ export class CLIInterface {
   }
 
   startSpinner(text: string): void {
+    // Stop any existing spinner to prevent orphaned spinners
+    if (this.spinner) {
+      this.spinner.stop();
+    }
     this.spinner = ora({
       text: colors.secondary(text),
       spinner: 'dots',
@@ -148,7 +180,7 @@ export class CLIInterface {
     console.log('');
   }
 
-  displayGenerationSummary(docsGenerated: number, agentsGenerated: number): void {
+  displayGenerationSummary(docsGenerated: number, agentsGenerated: number, skillsGenerated?: number): void {
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
 
     console.log('');
@@ -157,6 +189,9 @@ export class CLIInterface {
     console.log('');
     console.log(typography.labeledValue(this.t('ui.generationSummary.documentation'), `${docsGenerated} files`));
     console.log(typography.labeledValue(this.t('ui.generationSummary.agents'), `${agentsGenerated} playbooks`));
+    if (skillsGenerated !== undefined && skillsGenerated > 0) {
+      console.log(typography.labeledValue(this.t('ui.generationSummary.skills'), `${skillsGenerated} skills`));
+    }
     console.log(typography.labeledValue(this.t('ui.generationSummary.timeElapsed'), `${elapsed}s`));
     console.log('');
     console.log(colors.secondaryDim(this.t('ui.generationSummary.nextStep')));
@@ -216,7 +251,8 @@ export class CLIInterface {
       documentation: symbols.documentation,
       playbook: symbols.playbook,
       plan: symbols.plan,
-      fill: symbols.fill
+      fill: symbols.fill,
+      skill: symbols.skill
     };
     return icons[agent] || symbols.tool;
   }

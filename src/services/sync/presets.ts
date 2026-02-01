@@ -1,23 +1,29 @@
 import path from 'node:path';
 import type { TargetPreset, PresetName } from './types';
+import { getAgentsSyncPresets } from '../shared';
 
-export const TARGET_PRESETS: Record<Exclude<PresetName, 'all'>, TargetPreset> = {
-  claude: {
-    name: 'claude',
-    path: '.claude/agents',
-    description: 'Claude Code agents directory'
-  },
-  github: {
-    name: 'github',
-    path: '.github/agents',
-    description: 'GitHub Copilot agents directory'
-  },
-  cursor: {
-    name: 'cursor',
-    path: '.cursor/agents',
-    description: 'Cursor AI agents directory'
+/**
+ * Build agent sync presets from the unified tool registry
+ */
+function buildTargetPresets(): Record<Exclude<PresetName, 'all'>, TargetPreset> {
+  const registryPresets = getAgentsSyncPresets();
+  const presets: Record<string, TargetPreset> = {};
+
+  for (const [toolId, preset] of Object.entries(registryPresets)) {
+    presets[toolId] = {
+      name: toolId as PresetName,
+      path: preset.path,
+      description: preset.description,
+    };
   }
-};
+
+  return presets as Record<Exclude<PresetName, 'all'>, TargetPreset>;
+}
+
+/**
+ * Agent sync presets (derived from tool registry)
+ */
+export const TARGET_PRESETS: Record<Exclude<PresetName, 'all'>, TargetPreset> = buildTargetPresets();
 
 export function resolvePresets(presetName: PresetName): TargetPreset[] {
   if (presetName === 'all') {
@@ -44,5 +50,5 @@ export function getPresetByPath(targetPath: string): TargetPreset | undefined {
 }
 
 export function getAllPresetNames(): PresetName[] {
-  return ['claude', 'github', 'cursor', 'all'];
+  return [...Object.keys(TARGET_PRESETS), 'all'] as PresetName[];
 }
